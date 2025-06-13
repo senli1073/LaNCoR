@@ -3,10 +3,9 @@ import warnings
 import os
 import random
 import re
-from typing import Any, Dict, List, Literal, Union
+from typing import Any, List
 import GPUtil
 import numpy as np
-import math
 import torch
 import torch.distributed as dist
 
@@ -172,7 +171,6 @@ def init_distributed_mode() -> bool:
     return True
 
 
-
 def strfargs(args, configs) -> str:
     """Convert arguments and configs to string."""
 
@@ -204,7 +202,7 @@ def cal_snr(
         data (np.ndarray): 3 component data. Shape: (C, L)
         pat (int): Phase arrival time.
         window (int, optional): The length of the window for calculating the SNR (in the sample). Defaults to 500.
-        method (str): Method to calculate SNR. One of {"power", "std"}. Defaults to "power"
+        method (str): Method to calculate SNR. One of {"power", "rmse"}. Defaults to "power"
 
     Returns:
         float: Estimated SNR in db.
@@ -218,7 +216,6 @@ def cal_snr(
     assert window < data.shape[-1] / 2, f"window = {window}, data.shape = {data.shape}"
     assert 0 < pat < data.shape[-1], f"pat = {pat}"
 
-
     if (pat + window) <= data.shape[-1]:
         if pat >= window:
             nw = data[:, pat - window : pat]
@@ -231,10 +228,10 @@ def cal_snr(
         window = data.shape[-1] - pat
         nw = data[:, pat - window : pat]
         sw = data[:, pat : pat + window]
-    
+
     if method == "power":
         snr = np.mean(sw**2) / (np.mean(nw**2) + 1e-6)
-    elif method == "std":
+    elif method == "rmse":
         snr = np.std(sw) / (np.std(nw) + 1e-6)
     else:
         raise Exception(f"Unknown method: {method}")

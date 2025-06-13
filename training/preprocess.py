@@ -3,7 +3,7 @@ import copy
 from utils import logger
 from config import Config
 from operator import itemgetter
-from typing import Any, List, Tuple, Union, Union
+from typing import Any, List, Tuple, Union
 import numpy as np
 import json
 from datasets import build_dataset
@@ -80,7 +80,7 @@ class DataPreprocessor:
         shift_event_rate: float,
         mask_percent: float,
         noise_percent: float,
-        sigma_s:int,
+        sigma_s: int,
         min_event_gap_sec: float,
         soft_label_shape: str,
         soft_label_width: int,
@@ -137,9 +137,9 @@ class DataPreprocessor:
     def _clear_dict_except(self, d: dict, *args) -> None:
         if len(args) > 0:
             for arg in args:
-                assert isinstance(
-                    arg, str
-                ), f"Input arguments must be str, got `{arg}`({type(arg)})"
+                assert isinstance(arg, str), (
+                    f"Input arguments must be str, got `{arg}`({type(arg)})"
+                )
         for k in set(d) - set(args):
             if isinstance(d[k], (list, dict)):
                 d[k].clear()
@@ -232,14 +232,14 @@ class DataPreprocessor:
             max_data[max_data == 0] = 1
             data /= max_data
 
-        elif mode == "std":
+        elif mode == "rmse":
             std_data = np.std(data, axis=1, keepdims=True)
             std_data[std_data == 0] = 1
             data /= std_data
         elif mode == "":
             return data
         else:
-            raise ValueError(f"Supported mode: 'max','std', got '{mode}'")
+            raise ValueError(f"Supported mode: 'max','rmse', got '{mode}'")
         return data
 
     def _generate_noise_data(self, data: np.ndarray, ppks: list, spks: list):
@@ -429,19 +429,18 @@ class DataPreprocessor:
             data[:, st:et] = np.random.randn(data.shape[0], window_size)
 
         return data
-    
-    def _add_phase_label_noise(self,ppks:list,spks:list,sigma_s:int):
+
+    def _add_phase_label_noise(self, ppks: list, spks: list, sigma_s: int):
         """
         Add noise to phase label
         """
-        mu = 0.
+        mu = 0.0
         sigma = int(sigma_s)
         shift = np.random.rand() * sigma + mu
-        shift = int(np.clip(shift,-3 * sigma,3 * sigma))
-        ppks=[ppk + shift for ppk in ppks]
-        spks=[spk + shift for spk in spks]
+        shift = int(np.clip(shift, -3 * sigma, 3 * sigma))
+        ppks = [ppk + shift for ppk in ppks]
+        spks = [spk + shift for spk in spks]
         return shift, ppks, spks
-
 
     def _data_augmentation(self, event: dict) -> dict:
         data, ppks, spks = itemgetter("data", "ppks", "spks")(event)
@@ -526,9 +525,9 @@ class DataPreprocessor:
         if not inplace:
             event = copy.deepcopy(event)
 
-        if self.sigma_s >0:
+        if self.sigma_s > 0:
             event["shift"], event["ppks"], event["spks"] = self._add_phase_label_noise(
-                ppks=event["ppks"], spks=event["spks"],sigma_s=self.sigma_s
+                ppks=event["ppks"], spks=event["spks"], sigma_s=self.sigma_s
             )
 
         is_noise = self._is_noise(
@@ -592,9 +591,7 @@ class DataPreprocessor:
                 right = soft_label_width - left
 
                 if soft_label_shape == "gaussian":
-                    window = np.exp(
-                        -((np.arange(-left, right + 1)) ** 2) / (2 * 10**2)
-                    )
+                    window = np.exp(-((np.arange(-left, right + 1)) ** 2) / (2 * 10**2))
                 elif soft_label_shape == "triangle":
                     window = 1 - np.abs(
                         2 / soft_label_width * (np.arange(-left, right + 1))
@@ -609,9 +606,10 @@ class DataPreprocessor:
 
                     l_l, l_r = -int(left / 2), left - int(left / 2)
                     r_l, r_r = -int(right / 2), right - int(right / 2)
-                    x_l, x_r = -10 / left * np.arange(l_l, l_r), -10 / right * (
-                        -1
-                    ) * np.arange(r_l, r_r)
+                    x_l, x_r = (
+                        -10 / left * np.arange(l_l, l_r),
+                        -10 / right * (-1) * np.arange(r_l, r_r),
+                    )
                     w_l, w_r = _sigmoid(x_l), _sigmoid(x_r)
                     window = np.concatenate((w_l, [1.0], w_r), axis=0)
                 else:
@@ -646,7 +644,7 @@ class DataPreprocessor:
 
         # Phase-P/S
         if name in ["ppk", "spk"]:
-            key = {"ppk":"ppks", "spk":"spks"}.get(name)
+            key = {"ppk": "ppks", "spk": "spks"}.get(name)
             label = _get_soft_label(idxs=event[key], length=length)
 
         # None (=1-P(p)-P(s))
@@ -677,7 +675,7 @@ class DataPreprocessor:
         # Phase-P/S (plus)
         elif name in ["ppk+", "spk+"]:
             label = np.zeros(length)
-            key = {"ppk+":"ppks", "spk+":"spks"}.get(name)
+            key = {"ppk+": "ppks", "spk+": "spks"}.get(name)
             phases = event[key]
             for i in range(len(phases)):
                 st = phases[i]
@@ -709,8 +707,8 @@ class DataPreprocessor:
         soft_label_shape: str = None,
     ) -> Union[tuple, list, np.ndarray]:
         """Get IO item
-        
-        In order to adapt to the input and output data of different models, we have weakened 
+
+        In order to adapt to the input and output data of different models, we have weakened
         the difference between input and output, and collectively refer to them as `io_item`.
 
         Args:
@@ -727,7 +725,7 @@ class DataPreprocessor:
             Union[tuple,list,np.ndarray]: Item.
 
 
-        
+
         """
 
         if isinstance(name, (tuple, list)):
@@ -797,22 +795,31 @@ class DataPreprocessor:
 
         for name in task_names:
             if name in ["ppk", "spk"]:
-                key = {"ppk":"ppks", "spk":"spks"}.get(name)
+                key = {"ppk": "ppks", "spk": "spks"}.get(name)
                 tgt = self._get_io_item(name=key, event=event)
-                tgt = _pad_array(tgt, length=max_event_num, padding_value=int(-1e7)).astype(np.int64)
+                tgt = _pad_array(
+                    tgt, length=max_event_num, padding_value=int(-1e7)
+                ).astype(np.int64)
             elif name == "det":
                 padded_ppks, padded_spks = _pad_phases(
                     event["ppks"], event["spks"], self.soft_label_width, self.in_samples
                 )
                 detections = []
                 for ppk, spk in zip(padded_ppks, padded_spks):
-                    st = np.clip(ppk,0,self.in_samples)
+                    st = np.clip(ppk, 0, self.in_samples)
                     et = int(spk + (self.coda_ratio * (spk - ppk)))
-                    detections.extend([st,et])
-                expected_num = self._max_event_num + int(bool(self.add_event_rate)) + int(bool(self.shift_event_rate)) + int(0 <= self.p_position_ratio <= 1)
-                if len(detections)//2< expected_num:
-                    detections = detections + [1,0] * (expected_num-len(detections)//2)
-                    
+                    detections.extend([st, et])
+                expected_num = (
+                    self._max_event_num
+                    + int(bool(self.add_event_rate))
+                    + int(bool(self.shift_event_rate))
+                    + int(0 <= self.p_position_ratio <= 1)
+                )
+                if len(detections) // 2 < expected_num:
+                    detections = detections + [1, 0] * (
+                        expected_num - len(detections) // 2
+                    )
+
                 tgt = np.array(detections).astype(np.int64)
 
             else:
@@ -896,7 +903,7 @@ class SeismicDataset(Dataset):
 
         if self._augmentation:
             logger.warning(
-                f"Data augmentation: Dataset size -> {self._dataset_size *2}"
+                f"Data augmentation: Dataset size -> {self._dataset_size * 2}"
             )
 
         # Preprocessor
@@ -920,7 +927,7 @@ class SeismicDataset(Dataset):
             shift_event_rate=args.shift_event_rate,
             mask_percent=args.mask_percent,
             noise_percent=args.noise_percent,
-            sigma_s=int(self._sigma/3),
+            sigma_s=int(self._sigma / 3),
             min_event_gap_sec=args.min_event_gap,
             soft_label_shape=args.label_shape,
             soft_label_width=int(args.label_width * self._dataset.sampling_rate()),
@@ -932,7 +939,7 @@ class SeismicDataset(Dataset):
 
     def data_channels(self):
         return self._dataset.channels()
-    
+
     def name(self):
         return f"{self._dataset.name()}_{self._mode}"
 
@@ -951,7 +958,7 @@ class SeismicDataset(Dataset):
         """
 
         # Load data
-        event,meta_data = self._dataset[idx % self._dataset_size]
+        event, meta_data = self._dataset[idx % self._dataset_size]
 
         # Preprocess
         event = self._preprocessor.process(
@@ -971,7 +978,5 @@ class SeismicDataset(Dataset):
             event=event, task_names=self._task_names, max_event_num=self._max_event_num
         )
         meta_data_json = json.dumps(meta_data)
-        
-        
-        
+
         return inputs, loss_targets, metrics_targets, meta_data_json

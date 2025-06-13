@@ -1,26 +1,22 @@
 import torch
 import torch.distributed as dist
 import numpy as np
-import math
 from .misc import reduce_tensor, gather_tensors_to_list
 from typing import Tuple
 import copy
 from typing import List, Dict, Union
 
 
-
-
 class Metrics:
     """Compute metrics (batch-wise average).
 
-    Available metrics: `Precision`, `Recall`, `F1`, `Mean`, `Std`, `MAE`, `MAPE`, `R2`
+    Available metrics: `Precision`, `Recall`, `F1`, `Mean`, `RMSE`, `MAE`, `MAPE`, `R2`
     """
 
     _epsilon = 1e-6
     _avl_regr_keys = ("sum_res", "sum_squ_res", "sum_abs_res", "sum_abs_per_res")
     _avl_cmat_keys = ("tp", "predp", "possp")
-    _avl_metrics = ("precision", "recall", "f1", "mean", "std", "mae", "mape", "r2")
-
+    _avl_metrics = ("precision", "recall", "f1", "mean", "rmse", "mae", "mape", "r2")
 
     def __init__(
         self,
@@ -57,28 +53,27 @@ class Metrics:
         self._num_samples = num_samples
 
         unexpected_keys = set(self._metric_names) - set(self._avl_metrics)
-        assert set(self._metric_names).issubset(
-            self._avl_metrics
-        ), f"Unexpected metrics:{unexpected_keys}"
+        assert set(self._metric_names).issubset(self._avl_metrics), (
+            f"Unexpected metrics:{unexpected_keys}"
+        )
 
         data_keys = self._metric_names
         if set(self._metric_names) & set(("precision", "recall", "f1")):
             data_keys += self._avl_cmat_keys
-        if set(self._metric_names) & set(("mean", "std", "mae", "mape")):
+        if set(self._metric_names) & set(("mean", "rmse", "mae", "mape")):
             data_keys += self._avl_regr_keys
 
-        self._data={
+        self._data = {
             k: torch.tensor(0, dtype=torch.float32, device=self.device)
             for k in data_keys
         }
         self._data["data_size"] = torch.tensor(0, dtype=torch.long, device=self.device)
-        
+
         self._tgts: torch.Tensor = None
 
-        self._results: Dict[str,float] = {}
-        
+        self._results: Dict[str, float] = {}
+
         self._modified = True
-        
 
     def synchronize_between_processes(self):
         """
@@ -96,7 +91,6 @@ class Metrics:
         dist.barrier()
 
         self._modified = True
-
 
     def _order_phases(
         self, targets: torch.Tensor, preds: torch.Tensor
@@ -137,7 +131,9 @@ class Metrics:
             reduce: bool
                 For distributed training.
         """
-        assert targets.size(0) == preds.size(0), f"`{targets.size()}` != `{preds.size()}`"
+        assert targets.size(0) == preds.size(0), (
+            f"`{targets.size()}` != `{preds.size()}`"
+        )
         assert targets.dim() == 2, f"dim:{targets.dim()}, shape:{targets.size()}"
 
         self._data["data_size"] += targets.size(0)
@@ -155,7 +151,7 @@ class Metrics:
 
                 preds_bin = (preds >= 0) & (preds < self._num_samples)
                 targets_bin = (targets >= 0) & (targets < self._num_samples)
-                
+
                 ae = torch.abs(targets - preds)
                 mask = tp_bin = preds_bin & targets_bin & (ae <= self._t_thres)
 
@@ -166,16 +162,25 @@ class Metrics:
             elif self._task in ["det"]:
                 targets = targets.type(torch.long)
                 preds = preds.type(torch.long)
-                
-                bs = targets.size(0)
-                
-                targets = targets.reshape(bs,-1,2)
-                preds = preds.reshape(bs,-1,2)
 
-                indices = torch.arange(self._num_samples,device=self.device).unsqueeze(0).unsqueeze(0)
-                
-                targets_bin = torch.sum((targets[:,:,:1] <= indices) & (indices <=targets[:,:,1:]),dim=-2)
-                preds_bin = torch.sum((preds[:,:,:1] <= indices) & (indices <=preds[:,:,1:]),dim=-2)
+                bs = targets.size(0)
+
+                targets = targets.reshape(bs, -1, 2)
+                preds = preds.reshape(bs, -1, 2)
+
+                indices = (
+                    torch.arange(self._num_samples, device=self.device)
+                    .unsqueeze(0)
+                    .unsqueeze(0)
+                )
+
+                targets_bin = torch.sum(
+                    (targets[:, :, :1] <= indices) & (indices <= targets[:, :, 1:]),
+                    dim=-2,
+                )
+                preds_bin = torch.sum(
+                    (preds[:, :, :1] <= indices) & (indices <= preds[:, :, 1:]), dim=-2
+                )
 
                 self._data["tp"] = torch.sum(
                     torch.round(torch.clip(targets_bin * preds_bin, 0, 1))
@@ -188,23 +193,25 @@ class Metrics:
                 )
 
             else:
-                assert (
-                    targets.size() == preds.size()
-                ), f"`{targets.size()}` != `{preds.size()}`"
-                assert targets.size(-1) > 1, f"The input must be one-hot."
+                assert targets.size() == preds.size(), (
+                    f"`{targets.size()}` != `{preds.size()}`"
+                )
+                assert targets.size(-1) > 1, "The input must be one-hot."
 
                 # Scatter is faster than fancy indexing.
                 preds_indices = preds.topk(1).indices
-                preds = preds.zero_().scatter_(dim=1,index=preds_indices,value=1)
-                
+                preds = preds.zero_().scatter_(dim=1, index=preds_indices, value=1)
+
                 targets_indices = targets.topk(1).indices
-                targets = targets.zero_().scatter_(dim=1,index=targets_indices,value=1)
+                targets = targets.zero_().scatter_(
+                    dim=1, index=targets_indices, value=1
+                )
 
                 self._data["tp"] = torch.sum(targets * preds, dim=0)
                 self._data["predp"] = torch.sum(preds, dim=0)
                 self._data["possp"] = torch.sum(targets, dim=0)
 
-        if set(self._metric_names) & set(("mean", "std", "mae", "mape", "r2")):
+        if set(self._metric_names) & set(("mean", "rmse", "mae", "mape", "r2")):
             res = targets - preds
             # BAZ
             if self._task in ["baz"]:
@@ -215,7 +222,7 @@ class Metrics:
             if "mean" in self._metric_names:
                 self._data["sum_res"] = (res * mask).type(torch.float32).mean(-1).sum()
 
-            if "std" in self._metric_names:
+            if "rmse" in self._metric_names:
                 self._data["sum_squ_res"] = (
                     torch.pow(res * mask, 2).type(torch.float32).mean(-1).sum()
                 )
@@ -307,8 +314,8 @@ class Metrics:
             v = self._data["f1"] = (2 * pr * re / (pr + re + self._epsilon)).mean()
         elif key == "mean":
             v = self._data["mean"] = self._data["sum_res"] / self._data["data_size"]
-        elif key == "std":
-            v = self._data["std"] = torch.sqrt(
+        elif key == "rmse":
+            v = self._data["rmse"] = torch.sqrt(
                 self._data["sum_squ_res"] / self._data["data_size"]
             )
         elif key == "mae":
@@ -332,7 +339,7 @@ class Metrics:
         return v
 
     def _update_all_metrics(self) -> dict:
-        if self._modified or len(self._results)==0:
+        if self._modified or len(self._results) == 0:
             self._results = {
                 k: self._update_metric(k).item() for k in self._metric_names
             }
@@ -380,4 +387,3 @@ class Metrics:
             else:
                 metrics_dict[k] = v
         return metrics_dict
-

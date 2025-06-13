@@ -1,25 +1,23 @@
 from collections import defaultdict
 import re
 from functools import partial
-from typing import Any, Callable
+from typing import Any
 import torch.nn as nn
 from models import (
     BCELoss,
-    LNRLLoss,
     get_model_list,
 )
 
 
 class Config:
     #  ////////////////////////////////////////////////////////////////////////////// Models
-    
-    
+
     models = {
         "seist": {
             "loss": partial(BCELoss, weight=[[0.2], [1]]),
             "inputs": [["z"]],
-            "labels": [[ "det","ppk"]],
-            "eval": [ "ppk"],
+            "labels": [["det", "ppk"]],
+            "eval": ["ppk"],
             "targets_transform_for_loss": None,
             "outputs_transform_for_loss": None,
             "outputs_transform_for_results": None,
@@ -27,12 +25,12 @@ class Config:
         "lnrl": {
             "loss": nn.Identity,
             "inputs": [["z"]],
-            "labels": [[ "det","ppk"]],
+            "labels": [["det", "ppk"]],
             "eval": ["ppk"],
             "targets_transform_for_loss": None,
             "outputs_transform_for_loss": None,
             "outputs_transform_for_results": None,
-        }
+        },
     }
 
     #  ////////////////////////////////////////////////////////////////////////////// Conf keys
@@ -51,29 +49,29 @@ class Config:
         "recall",
         "f1",
         "mean",
-        "std",
+        "rmse",
         "mae",
         "mape",
         "r2",
     )
 
     #  ////////////////////////////////////////////////////////////////////////////// Available input and output items
-    
+
     _avl_io_item_types = ("soft", "value", "onehot")
 
     _avl_io_items = {
         # -------------------------------------------------------------------------- Channel-Z
-        "z": {"type": "soft", "metrics": ["mean", "std", "mae"]},
+        "z": {"type": "soft", "metrics": ["mean", "rmse", "mae"]},
         # -------------------------------------------------------------------------- Channel-N
-        "n": {"type": "soft", "metrics": ["mean", "std", "mae"]},
+        "n": {"type": "soft", "metrics": ["mean", "rmse", "mae"]},
         # -------------------------------------------------------------------------- Channel-E
-        "e": {"type": "soft", "metrics": ["mean", "std", "mae"]},
+        "e": {"type": "soft", "metrics": ["mean", "rmse", "mae"]},
         # -------------------------------------------------------------------------- Diff(Z)
-        "dz": {"type": "soft", "metrics": ["mean", "std", "mae"]},
+        "dz": {"type": "soft", "metrics": ["mean", "rmse", "mae"]},
         # -------------------------------------------------------------------------- Diff(N)
-        "dn": {"type": "soft", "metrics": ["mean", "std", "mae"]},
+        "dn": {"type": "soft", "metrics": ["mean", "rmse", "mae"]},
         # -------------------------------------------------------------------------- Diff(E)
-        "de": {"type": "soft", "metrics": ["mean", "std", "mae"]},
+        "de": {"type": "soft", "metrics": ["mean", "rmse", "mae"]},
         # -------------------------------------------------------------------------- 1-P(p)-P(s)
         "non": {"type": "soft", "metrics": []},
         # -------------------------------------------------------------------------- P(d)
@@ -81,12 +79,12 @@ class Config:
         # -------------------------------------------------------------------------- P(p)
         "ppk": {
             "type": "soft",
-            "metrics": ["precision", "recall", "f1", "mean", "std", "mae", "mape"],
+            "metrics": ["precision", "recall", "f1", "mean", "rmse", "mae", "mape"],
         },
         # -------------------------------------------------------------------------- P(s)
         "spk": {
             "type": "soft",
-            "metrics": ["precision", "recall", "f1", "mean", "std", "mae", "mape"],
+            "metrics": ["precision", "recall", "f1", "mean", "rmse", "mae", "mape"],
         },
         # -------------------------------------------------------------------------- P(p+)
         "ppk+": {"type": "soft", "metrics": []},
@@ -95,24 +93,24 @@ class Config:
         # -------------------------------------------------------------------------- P(d+)
         "det+": {"type": "soft", "metrics": []},
         # -------------------------------------------------------------------------- Phase-P indices
-        "ppks": {"type": "value", "metrics": ["mean", "std", "mae", "mape", "r2"]},
+        "ppks": {"type": "value", "metrics": ["mean", "rmse", "mae", "mape", "r2"]},
         # -------------------------------------------------------------------------- Phase-S indices
-        "spks": {"type": "value", "metrics": ["mean", "std", "mae", "mape", "r2"]},
+        "spks": {"type": "value", "metrics": ["mean", "rmse", "mae", "mape", "r2"]},
         # -------------------------------------------------------------------------- Event magnitude
-        "emg": {"type": "value", "metrics": ["mean", "std", "mae", "r2"]},
+        "emg": {"type": "value", "metrics": ["mean", "rmse", "mae", "r2"]},
         # -------------------------------------------------------------------------- Station magnitude
-        "smg": {"type": "value", "metrics": ["mean", "std", "mae", "r2"]},
+        "smg": {"type": "value", "metrics": ["mean", "rmse", "mae", "r2"]},
         # -------------------------------------------------------------------------- Back azimuth
-        "baz": {"type": "value", "metrics": ["mean", "std", "mae", "r2"]},
+        "baz": {"type": "value", "metrics": ["mean", "rmse", "mae", "r2"]},
         # -------------------------------------------------------------------------- Distance
-        "dis": {"type": "value", "metrics": ["mean", "std", "mae", "r2"]},
+        "dis": {"type": "value", "metrics": ["mean", "rmse", "mae", "r2"]},
         # -------------------------------------------------------------------------- P motion polarity
         "pmp": {
             "type": "onehot",
             "metrics": ["precision", "recall", "f1"],
             "num_classes": 2,
         },
-        # -------------------------------------------------------------------------- Clarity 
+        # -------------------------------------------------------------------------- Clarity
         "clr": {
             "type": "onehot",
             "metrics": ["precision", "recall", "f1"],
@@ -123,7 +121,6 @@ class Config:
 
     @classmethod
     def check_and_init(cls):
-        
         cls._type_to_ioitems = defaultdict(list)
 
         for k, v in cls._avl_io_items.items():
@@ -187,7 +184,7 @@ class Config:
             return list(cls._avl_io_items)
         else:
             return cls._type_to_ioitems[type]
-        
+
     @classmethod
     def get_type(cls, name: str) -> list:
         return cls._avl_io_items[name]["type"]
@@ -248,22 +245,23 @@ class Config:
         else:
             conf = tuple(attrs_conf)
         return conf
-    
+
     @classmethod
-    def get_num_inchannels(cls,model_name:str) ->int:
+    def get_num_inchannels(cls, model_name: str) -> int:
         """Get number of input channels"""
         in_channels = 0
-        inps = cls.get_model_config_(model_name,"inputs")
+        inps = cls.get_model_config_(model_name, "inputs")
         for inp in inps:
-            if isinstance(inp,(list,tuple)):
+            if isinstance(inp, (list, tuple)):
                 if cls._avl_io_items[inp[0]]["type"] == "soft":
                     in_channels = len(inp)
                     break
 
-        if in_channels<1:
-            raise Exception(f"Incorrect input channels. Model:{model_name} Inputs:{inps}")
+        if in_channels < 1:
+            raise Exception(
+                f"Incorrect input channels. Model:{model_name} Inputs:{inps}"
+            )
         return in_channels
-                
 
     @classmethod
     def get_metrics(cls, item_name: str) -> list:
